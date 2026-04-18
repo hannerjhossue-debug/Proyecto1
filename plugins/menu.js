@@ -3,28 +3,38 @@ const fs = require('fs');
 module.exports = {
     name: 'menu',
     alias: ['ayuda', 'help'],
-    category: 'principal',
-    description: 'Muestra la lista de comandos disponibles.',
-    run: async (sock, m, texto) => {
+    description: 'Muestra este panel de control.',
+    run: async (sock, m) => {
         const from = m.key.remoteJid;
-        const nombreUser = m.pushName || 'Usuario';
-        const archivos = fs.readdirSync('./plugins').filter(file => file.endsWith('.js'));
-        
-        let menuTxt = `¡Hola, *${nombreUser}*! 👋\n`;
-        menuTxt += `Bienvenido a *Maruchan Bot v1* 🍜\n\n`;
-        menuTxt += `Aquí tienes mi lista de comandos:\n`;
-        menuTxt += `━━━━━━━━━━━━━━━━━━━━\n`;
+        const nombre = m.pushName || 'Usuario';
 
-        archivos.forEach(file => {
-            const plugin = require(`./${file}`);
-            menuTxt += `🍜 */${plugin.name}*\n`;
-            menuTxt += `╰ _${plugin.description || 'Sin descripción.'}_\n\n`;
-        });
+        const menuTexto = `
+🍜 *MARUCHAN BOT v1* 🍜
+_Hola, ${nombre}_
 
-        menuTxt += `━━━━━━━━━━━━━━━━━━━━\n`;
-        menuTxt += `📌 *Dato:* Usa / antes de cada comando.\n`;
-        menuTxt += `🚀 *Estado:* Online`;
+*─── [ PRINCIPAL ] ───*
+- */menu*
+  _Muestra la lista de comandos_
 
-        await sock.sendMessage(from, { text: menuTxt.trim() }, { quoted: m });
+*─── [ DESCARGAS ] ───*
+- */tiktok* <link>
+  _Descarga videos de TikTok sin marca de agua_
+- */ig* <link>
+  _Descarga reels y fotos de Instagram_
+
+*─── [ HERRAMIENTAS ] ───*
+- */sticker*
+  _Convierte imagen en sticker (usa /s en la foto)_
+
+*─── [ GRUPOS ] ───*
+- */grupo* <abrir/cerrar>
+  _Control de acceso al chat_
+
+*─── [ INFO ] ───*
+- Prefijo: [ / ]
+- Dev: Jhossue
+`.trim();
+
+        await sock.sendMessage(from, { text: menuTexto }, { quoted: m });
     }
 };
