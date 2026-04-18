@@ -1,19 +1,23 @@
 module.exports = {
     name: 'grupo',
     alias: ['group', 'cerrar', 'abrir'],
+    category: 'admin',
+    description: 'Controla el grupo (abrir o cerrar el chat).',
     run: async (sock, m, texto) => {
         const from = m.key.remoteJid;
-        if (!from.endsWith('@g.us')) return m.reply('❌ Este comando solo sirve en grupos.');
+        const isGroup = from.endsWith('@g.us');
 
-        // Solo el dueño o admins deberían usar esto (por ahora lo dejamos libre para que pruebes)
+        if (!isGroup) return sock.sendMessage(from, { text: '❌ Este comando solo se puede usar en grupos.' }, { quoted: m });
+
+        // Por ahora está libre, luego le pondremos seguridad para que solo tú o los admins lo usen
         if (texto === 'cerrar') {
             await sock.groupSettingUpdate(from, 'announcement');
-            await sock.sendMessage(from, { text: '🔒 *Grupo Cerrado.* Solo los administradores pueden enviar mensajes.' });
+            await sock.sendMessage(from, { text: '🔒 *Grupo Cerrado.*\nAhora solo los administradores pueden enviar mensajes.' }, { quoted: m });
         } else if (texto === 'abrir') {
             await sock.groupSettingUpdate(from, 'not_announcement');
-            await sock.sendMessage(from, { text: '🔓 *Grupo Abierto.* Todos pueden hablar.' });
+            await sock.sendMessage(from, { text: '🔓 *Grupo Abierto.*\nTodos los participantes pueden enviar mensajes.' }, { quoted: m });
         } else {
-            await sock.sendMessage(from, { text: 'Uso: */grupo cerrar* o */grupo abrir*' });
+            await sock.sendMessage(from, { text: '💡 *Modo de uso:*\n/grupo cerrar\n/grupo abrir' }, { quoted: m });
         }
     }
 };
