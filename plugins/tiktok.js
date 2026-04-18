@@ -13,37 +13,38 @@ module.exports = {
         if (!link) return sock.sendMessage(from, { text: '❌ _Link no válido._' }, { quoted: m });
 
         try {
-            await sock.sendMessage(from, { text: '⏳ _Maruchan está cocinando tu video..._' }, { quoted: m });
+            await sock.sendMessage(from, { text: '⏳ _Maruchan está buscando el video más rápido..._' }, { quoted: m });
 
-            // Probamos con una API de alto rendimiento
-            const res = await axios.get(`https://api.vreden.my.id/api/tiktok?url=${encodeURIComponent(link[0])}`);
+            // API 1: Usando un servicio de procesamiento directo (AIO)
+            const res = await axios.post('https://api.tiklydown.eu.org/api/download', { url: link[0] });
             
-            if (res.data && res.data.status === 200) {
-                const videoData = res.data.result;
+            if (res.data && res.data.video) {
                 return await sock.sendMessage(from, { 
-                    video: { url: videoData.video || videoData.video_hd }, 
-                    caption: `✅ *TikTok Listo*\n📝 ${videoData.title || 'Sin descripción'}` 
+                    video: { url: res.data.video.noWatermark }, 
+                    caption: `✅ *TikTok Listo*\n👤 ${res.data.author.nickname || 'User'}` 
                 }, { quoted: m });
             }
-            
-            throw new Error('La API no devolvió un video válido');
+            throw new Error();
 
         } catch (e) {
-            // LOG DETALLADO EN CONSOLA PARA TI
-            console.log('--- ERROR EN TIKTOK ---');
-            console.log(e.response?.data || e.message);
-            
-            // Intento final con API de respaldo clásica
             try {
-                const res2 = await axios.get(`https://api.dorratz.com/v2/download/tiktok?url=${link[0]}`);
-                if (res2.data && res2.data.data) {
+                // API 2: Respaldo con servidor de alto rendimiento (Sandwich)
+                const res2 = await axios.get(`https://api.boxi.biz/api/tiktok?url=${link[0]}`);
+                if (res2.data && res2.data.video) {
                     return await sock.sendMessage(from, { 
-                        video: { url: res2.data.data.media.no_watermark }, 
-                        caption: '✅ *Descargado (Servidor 2)*' 
+                        video: { url: res2.data.video }, 
+                        caption: '✅ *Descargado con éxito*' 
                     }, { quoted: m });
                 }
+                throw new Error();
             } catch (err2) {
-                await sock.sendMessage(from, { text: '❌ _TikTok bloqueó el acceso. Intenta con un link de TikTok normal (no Lite) o prueba más tarde._' }, { quoted: m });
+                // API 3: Último recurso (Loli)
+                try {
+                    const res3 = await axios.get(`https://api.lolhuman.xyz/api/tiktok?apikey=GataDios&url=${link[0]}`);
+                    await sock.sendMessage(from, { video: { url: res3.data.result.link }, caption: '✅ *Servidor 3 activo*' }, { quoted: m });
+                } catch (err3) {
+                    await sock.sendMessage(from, { text: '❌ _TikTok actualizó su seguridad. Intenta de nuevo en unos minutos o usa un link de TikTok normal._' }, { quoted: m });
+                }
             }
         }
     }
