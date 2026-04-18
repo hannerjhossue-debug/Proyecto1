@@ -3,24 +3,32 @@ const axios = require('axios');
 module.exports = {
     name: 'yt',
     alias: ['play', 'musica'],
-    category: 'descargas',
-    description: 'Busca y descarga música de YouTube.',
+    description: 'Descarga música de YouTube.',
     run: async (sock, m, texto) => {
         const from = m.key.remoteJid;
-        if (!texto) return m.reply('🍜 _¿Qué canción quieres escuchar?_');
+        if (!texto) return sock.sendMessage(from, { text: '🍜 _¿Qué quieres escuchar?_' }, { quoted: m });
 
         try {
-            await m.reply('⏳ _Buscando en los servidores de YouTube..._');
+            await sock.sendMessage(from, { text: '⏳ _Buscando en el servidor de Mitzuki..._' }, { quoted: m });
+
+            // API estable de la comunidad
             const res = await axios.get(`https://api.botcahx.eu.org/api/dowloader/yt.mp3?url=${encodeURIComponent(texto)}&apikey=BrunoSobrino`);
             
-            const { title, mp3 } = res.data.result;
-            await sock.sendMessage(from, { 
-                audio: { url: mp3 }, 
-                mimetype: 'audio/mp4',
-                fileName: `${title}.mp3`
-            }, { quoted: m });
+            if (res.data && res.data.result) {
+                const { title, mp3 } = res.data.result;
+                
+                await sock.sendMessage(from, { 
+                    audio: { url: mp3 }, 
+                    mimetype: 'audio/mp4',
+                    fileName: `${title}.mp3`
+                }, { quoted: m });
+            } else {
+                throw new Error('No se encontró el archivo');
+            }
+
         } catch (e) {
-            m.reply('❌ _No se pudo obtener el audio. Intenta con el nombre exacto._');
+            console.log('Error YT:', e);
+            await sock.sendMessage(from, { text: '❌ _La API de Mitzuki/Botcahx está en mantenimiento. Intenta de nuevo más tarde._' }, { quoted: m });
         }
     }
 };
