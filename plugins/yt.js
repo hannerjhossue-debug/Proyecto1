@@ -2,31 +2,25 @@ const axios = require('axios');
 
 module.exports = {
     name: 'yt',
-    alias: ['play', 'youtube'],
+    alias: ['play', 'musica'],
     category: 'descargas',
-    description: 'Descarga audio o video de YouTube.',
+    description: 'Busca y descarga música de YouTube.',
     run: async (sock, m, texto) => {
         const from = m.key.remoteJid;
-        if (!texto) return sock.sendMessage(from, { text: '🍜 _Escribe el nombre de la canción o el link._' }, { quoted: m });
+        if (!texto) return m.reply('🍜 _¿Qué canción quieres escuchar?_');
 
         try {
-            await sock.sendMessage(from, { text: '⏳ _Buscando en YouTube..._' }, { quoted: m });
-
-            // Esta API busca y descarga a la vez
-            const res = await axios.get(`https://api.vreden.my.id/api/ytdl?url=${encodeURIComponent(texto)}`);
-            const { title, mp3, mp4 } = res.data.result;
-
-            // Por defecto mandamos el audio para no gastar tantos datos
+            await m.reply('⏳ _Buscando en los servidores de YouTube..._');
+            const res = await axios.get(`https://api.botcahx.eu.org/api/dowloader/yt.mp3?url=${encodeURIComponent(texto)}&apikey=BrunoSobrino`);
+            
+            const { title, mp3 } = res.data.result;
             await sock.sendMessage(from, { 
                 audio: { url: mp3 }, 
-                mimetype: 'audio/mp4', 
-                fileName: `${title}.mp3` 
+                mimetype: 'audio/mp4',
+                fileName: `${title}.mp3`
             }, { quoted: m });
-
-            await sock.sendMessage(from, { text: `✅ *${title}* enviado.\n\n_Si querías el video, usa el comando /ytmp4 (próximamente)._` });
-
         } catch (e) {
-            await sock.sendMessage(from, { text: '❌ _Error al buscar en YouTube._' }, { quoted: m });
+            m.reply('❌ _No se pudo obtener el audio. Intenta con el nombre exacto._');
         }
     }
 };
