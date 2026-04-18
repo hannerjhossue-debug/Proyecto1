@@ -31,15 +31,23 @@ async function iniciarBot() {
         }
     });
 
-    sock.ev.on('messages.upsert', async chatUpdate => {
-        try {
-            const m = chatUpdate.messages[0];
-            if (!m.message || m.key.fromMe) return;
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        // Si la librería manda un QR, esto lo imprime en la consola
+        if (qr) {
+            console.log("Sigue estos pasos:\n1. Abre WhatsApp\n2. Dispositivos vinculados\n3. Escanea el código de abajo:");
+            qrcode.generate(qr, { small: true });
+        }
 
-            const from = m.key.remoteJid;
-            const body = m.message.conversation || m.message.extendedTextMessage?.text || "";
-            const comando = body.trim().toLowerCase();
-
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Conexión cerrada, reconectando...', shouldReconnect);
+            if (shouldReconnect) iniciarBot();
+        } else if (connection === 'open') {
+            console.log('✅ [SISTEMA] Bot conectado con éxito');
+        }
+    });
             // --- SECCIÓN DE COMANDOS ---
             if (comando === 'hola') {
                 await sock.sendMessage(from, { text: '¡Hola! Soy tu bot Maruchan. 🍜' });
