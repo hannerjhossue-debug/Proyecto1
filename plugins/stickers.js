@@ -1,37 +1,50 @@
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-const { exec } = require('child_process');
 const fs = require('fs');
+const { exec } = require('child_process');
 
 module.exports = {
     name: 'sticker',
     alias: ['s', 'stiker'],
+    category: 'herramientas',
+    description: 'Convierte imágenes en stickers (respondiendo o enviando foto).',
     run: async (sock, m, texto) => {
         const from = m.key.remoteJid;
-        const type = Object.keys(m.message)[0];
-        const quoted = type === 'extendedTextMessage' ? m.message.extendedTextMessage.contextInfo.quotedMessage : null;
-        const finalType = quoted ? Object.keys(quoted)[0] : type;
+        
+        // Detectar si hay una imagen (directa o respondida)
+        const msg = m.message?.imageMessage || m.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
 
-        if (finalType === 'imageMessage') {
-            const msg = quoted ? quoted.imageMessage : m.message.imageMessage;
+        if (!msg) {
+            return await sock.sendMessage(from, { text: '❌ Debes enviar una imagen con el comando */s* o responder a una foto.' });
+        }
+
+        try {
             const stream = await downloadContentFromMessage(msg, 'image');
             let buffer = Buffer.from([]);
             for await (const chunk of stream) {
                 buffer = Buffer.concat([buffer, chunk]);
             }
-            
-            const fileName = `./${Date.now()}.webp`;
-            fs.writeFileSync('./tmp.jpg', buffer);
-            
-            // Comando para convertir a webp (formato de sticker)
-            exec(`ffmpeg -i ./tmp.jpg -vcodec libwebp -filter:v "scale='if(gt(a,1),512,-1)':'if(gt(a,1),-1,512)',pad=512:512:(512-iw)/2:(512-ih)/2:color=white@0" -lossless 1 ${fileName}`, async (err) => {
-                if (err) return sock.sendMessage(from, { text: '❌ Error al crear sticker' });
+
+            const tempJpg = `./${Date.now()}.jpg`;
+            const tempWebp = `./${Date.now()}.webp`;
+            fs.writeFileSync(tempJpg, buffer);
+
+            // Comando optimizado para Termux (asegúrate de tener ffmpeg instalado)
+            exec(`ffmpeg -i ${tempJpg} -vcodec libwebp -vf "scale='if(gt(a,1),512,-1)':'if(gt(a,1),-1,512)',pad=512:512:(512-iw)/2:(512-ih)/2:color=white@0" -lossless 1 ${tempWebp}`, async (err) => {
+                if (err) {
+                    console.log(err);
+                    return sock.sendMessage(from, { text: '❌ Error al procesar el sticker. Asegúrate de tener ffmpeg.' });
+                }
+
+                await sock.sendMessage(from, { sticker: fs.readFileSync(tempWebp) }, { quoted: m });
                 
-                await sock.sendMessage(from, { sticker: fs.readFileSync(fileName) }, { quoted: m });
-                fs.unlinkSync('./tmp.jpg');
-                fs.unlinkSync(fileName);
+                // Limpiar archivos temporales
+                if (fs.existsSync(tempJpg)) fs.unlinkSync(tempJpg);
+                if (fs.existsSync(tempWebp)) fs.unlinkSync(tempWebp);
             });
-        } else {
-            await sock.sendMessage(from, { text: 'Responde a una imagen con */s* o envía una con el comando en el texto.' });
+
+        } catch (e) {
+            console.log(e);
+            await sock.sendMessage(from, { text: '❌ Ocurrió un error inesperado.' });
         }
     }
 };
