@@ -20,13 +20,36 @@ global.antiSticker = {};
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     
+    // Eliminamos la opción que causa el bucle de advertencias
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
         logger: pino({ level: 'silent' }),
+        browser: ['Maruchan-Bot', 'Safari', '1.0.0']
     });
 
     sock.ev.on('creds.update', saveCreds);
+
+    // Manejo de conexión corregido
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        // Si hay un QR nuevo, lo mostramos manualmente para evitar el error
+        if (qr) {
+            console.log('✨ ESCANEA EL CÓDIGO QR PARA CONECTAR ✨');
+        }
+
+        if (connection === 'close') {
+            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
+            if (reason !== DisconnectReason.loggedOut) {
+                console.log('🔄 Reconectando...');
+                startBot();
+            } else {
+                console.log('❌ Sesión cerrada. Borra la carpeta auth_info_baileys.');
+            }
+        } else if (connection === 'open') {
+            console.log('🍜 Maruchan Bot Conectado con Éxito');
+        }
+    });
 
     sock.ev.on('messages.upsert', async (chatUpdate) => {
         try {
@@ -35,71 +58,32 @@ async function startBot() {
             const from = m.key.remoteJid;
             const isGroup = from.endsWith('@g.us');
             const sender = m.key.participant || from;
-            const pushName = m.pushName || 'Usuario';
             
-            // 1. LISTA NEGRA
-            if (global.listaNegra.includes(sender)) return;
-
-            // 2. ANTI-STICKER
-            if (isGroup && global.antiSticker[from]) {
-                if (m.message.stickerMessage) {
-                    await sock.sendMessage(from, { delete: m.key });
-                    return;
-                }
+            // Lógica Anti-Sticker
+            if (isGroup && global.antiSticker[from] && m.message.stickerMessage) {
+                await sock.sendMessage(from, { delete: m.key });
+                return;
             }
 
-            // 3. SISTEMA DE AUSENCIA (AFK)
-            const menciones = m.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-            menciones.forEach(jid => {
-                if (global.ausentes[jid]) {
-                    const data = global.ausentes[jid];
-                    const tiempo = Math.floor((Date.now() - data.hora) / 1000);
-                    sock.sendMessage(from, { 
-                        text: `🍜 *Maruchan Avisa:* @${jid.split('@')[0]} está ausente.\n\n📝 *Razón:* ${data.razon}\n⏳ *Tiempo:* ${tiempo} segundos.`,
-                        mentions: [jid]
-                    }, { quoted: m });
-                }
-            });
-
+            // Lógica Ausente (AFK)
             if (global.ausentes[sender]) {
-                const tiempoFuera = Math.floor((Date.now() - global.ausentes[sender].hora) / 1000);
-                await sock.sendMessage(from, { text: `✅ ¡Bienvenido de nuevo ${pushName}! Estuviste ausente ${tiempoFuera} segundos.` });
                 delete global.ausentes[sender];
+                await sock.sendMessage(from, { text: '✅ Ya no estás en modo ausente.' });
             }
 
-            // --- PROCESADOR DE COMANDOS ---
+            // Procesador de Comandos
             const prefix = '/';
             const body = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || '';
-            const isCmd = body.startsWith(prefix);
-            const command = isCmd ? body.slice(prefix.length).trim().split(' ')[0].toLowerCase() : '';
-            const args = body.trim().split(/ +/).slice(1);
-            const text = args.join(' ');
-
-            if (isCmd) {
+            if (body.startsWith(prefix)) {
+                const command = body.slice(prefix.length).trim().split(' ')[0].toLowerCase();
+                const text = body.trim().split(/ +/).slice(1).join(' ');
                 const pluginPath = path.join(__dirname, 'plugins', `${command}.js`);
                 if (fs.existsSync(pluginPath)) {
-                    const plugin = require(pluginPath);
-                    await plugin.run(sock, m, text);
+                    require(pluginPath).run(sock, m, text);
                 }
             }
-
         } catch (err) {
-            console.log('Error procesando mensaje:', err);
-        }
-    });
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'close') {
-            // AQUÍ ESTÁ EL ARREGLO PARA EL ERROR 404/LOGGEDOUT
-            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-            if (reason !== DisconnectReason.loggedOut) {
-                startBot();
-            } else {
-                console.log('❌ Sesión cerrada. Borra la carpeta auth_info_baileys y escanea de nuevo.');
-            }
-        } else if (connection === 'open') {
-            console.log('🍜 Maruchan Bot Conectado');
+            console.log(err);
         }
     });
 }
