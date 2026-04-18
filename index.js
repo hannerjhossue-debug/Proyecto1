@@ -1,85 +1,104 @@
 const { 
     default: makeWASocket, 
     useMultiFileAuthState, 
-    DisconnectReason, 
-    fetchLatestBaileysVersion 
+    disconnectReason, 
+    fetchLatestBaileysVersion, 
+    makeInMemoryStore, 
+    jidDecode, 
+    proto 
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { Boom } = require('@hapi/boom');
-const qrcode = require('qrcode-terminal');
 const fs = require('fs');
-const conectarDB = require('./database');
+const path = require('path');
 
-async function iniciarBot() {
-    await conectarDB();
+// --- BASES DE DATOS SIMPLES EN MEMORIA ---
+global.ausentes = {};    // Para el sistema AFK
+global.listaNegra = [];  // Para usuarios muteados
+global.antiSticker = {}; // Para el control de grupos (se guarda por ID de grupo)
 
-    const { state, saveCreds } = await useMultiFileAuthState('auth_maruchan');
-    const { version } = await fetchLatestBaileysVersion();
-
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    
     const sock = makeWASocket({
-        version,
-        logger: pino({ level: 'silent' }),
         auth: state,
-        printQRInTerminal: false,
-        browser: ['Maruchan Bot', 'Safari', '3.0']
+        printQRInTerminal: true,
+        logger: pino({ level: 'silent' }),
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // --- CARGADOR DE PLUGINS ---
-    const plugins = {};
-    const cargarPlugins = () => {
-        if (!fs.existsSync('./plugins')) fs.mkdirSync('./plugins');
-        const archivos = fs.readdirSync('./plugins').filter(file => file.endsWith('.js'));
-        for (const file of archivos) {
-            delete require.cache[require.resolve(`./plugins/${file}`)];
-            const command = require(`./plugins/${file}`);
-            plugins[command.name] = command;
-        }
-        console.log(`✅ [SISTEMA] ${archivos.length} Plugins cargados`);
-    };
-    cargarPlugins();
+    sock.ev.on('messages.upsert', async (chatUpdate) => {
+        try {
+            const m = chatUpdate.messages[0];
+            if (!m.message) return;
+            const from = m.key.remoteJid;
+            const isGroup = from.endsWith('@g.us');
+            const sender = m.key.participant || from;
+            const pushName = m.pushName || 'Usuario';
+            
+            // 1. LÓGICA DE LISTA NEGRA (MUTE)
+            if (global.listaNegra.includes(sender)) return;
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        if (qr) qrcode.generate(qr, { small: true });
-        if (connection === 'close') {
-            const razon = new Boom(lastDisconnect?.error)?.output.statusCode;
-            if (razon !== DisconnectReason.loggedOut) iniciarBot();
-        } else if (connection === 'open') {
-            console.log('✅ [CONECTADO] Maruchan Bot listo');
+            // 2. LÓGICA DE ANTI-STICKER
+            if (isGroup && global.antiSticker[from]) {
+                if (m.message.stickerMessage) {
+                    await sock.sendMessage(from, { delete: m.key });
+                    return; // No procesar nada más si era un sticker prohibido
+                }
+            }
+
+            // 3. LÓGICA DE AUSENCIA (AFK)
+            // Si mencionan a alguien que está ausente
+            const mensiones = m.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+            mensiones.forEach(jid => {
+                if (global.ausentes[jid]) {
+                    const data = global.ausentes[jid];
+                    const tiempo = Math.floor((Date.now() - data.hora) / 1000);
+                    sock.sendMessage(from, { 
+                        text: `🍜 *Maruchan Avisa:* @${jid.split('@')[0]} está ausente.\n\n📝 *Razón:* ${data.razon}\n⏳ *Tiempo:* ${tiempo} segundos.`,
+                        mentions: [jid]
+                    }, { quoted: m });
+                }
+            });
+
+            // Si el usuario ausente regresa
+            if (global.ausentes[sender]) {
+                const tiempoFuera = Math.floor((Date.now() - global.ausentes[sender].hora) / 1000);
+                await sock.sendMessage(from, { text: `✅ ¡Bienvenido de nuevo ${pushName}! Estuviste fuera ${tiempoFuera} segundos.` });
+                delete global.ausentes[sender];
+            }
+
+            // --- PROCESADOR DE COMANDOS ---
+            const prefix = '/';
+            const body = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || '';
+            const isCmd = body.startsWith(prefix);
+            const command = isCmd ? body.slice(prefix.length).trim().split(' ')[0].toLowerCase() : '';
+            const args = body.trim().split(/ +/).slice(1);
+            const text = args.join(' ');
+
+            if (isCmd) {
+                const pluginPath = path.join(__dirname, 'plugins', `${command}.js`);
+                if (fs.existsSync(pluginPath)) {
+                    const plugin = require(pluginPath);
+                    await plugin.run(sock, m, text);
+                }
+            }
+
+        } catch (err) {
+            console.log('Error procesando mensaje:', err);
         }
     });
 
-    sock.ev.on('messages.upsert', async chatUpdate => {
-        try {
-            const m = chatUpdate.messages[0];
-            if (!m.message || m.key.fromMe) return;
-
-            const from = m.key.remoteJid;
-            const body = m.message.conversation || m.message.extendedTextMessage?.text || "";
-            const prefix = '/'; 
-            
-            if (!body.startsWith(prefix)) return;
-
-            const comandoNombre = body.slice(prefix.length).trim().split(/ +/)[0].toLowerCase();
-            const args = body.trim().split(/ +/).slice(1);
-            const texto = args.join(' ');
-
-            // --- LOGS EN CONSOLA (CORREGIDO) ---
-            console.log(`🚀 [COMANDO] ${comandoNombre} | De: ${m.pushName || 'Usuario'} | En: ${from}`);
-
-            const plugin = Object.values(plugins).find(p => 
-                p.name === comandoNombre || (p.alias && p.alias.includes(comandoNombre))
-            );
-            
-            if (plugin) {
-                await plugin.run(sock, m, texto);
-            }
-        } catch (err) {
-            console.log('❌ Error:', err);
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== disconnectReason.loggedOut;
+            if (shouldReconnect) startBot();
+        } else if (connection === 'open') {
+            console.log('🍜 Maruchan Bot Conectado con Éxito');
         }
     });
 }
 
-iniciarBot();
+startBot();
