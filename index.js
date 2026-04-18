@@ -8,7 +8,7 @@ const { Boom } = require('@hapi/boom');
 const fs = require('fs');
 const path = require('path');
 
-// BASES DE DATOS (Se mantienen mientras el bot esté encendido)
+// BASES DE DATOS
 global.ausentes = {};    
 global.listaNegra = [];  
 global.antiSticker = {}; 
@@ -16,26 +16,36 @@ global.antiSticker = {};
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     
+    // Configuramos la conexión de forma limpia
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: true, // ESTO ASEGURA QUE VEAS EL QR
-        browser: ['Maruchan-Bot', 'Safari', '1.0.0']
+        browser: ['Maruchan-Bot', 'Chrome', '1.0.0']
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
+
+        // Si la librería manda un QR, lo imprimimos nosotros mismos
+        if (qr) {
+            console.log('-------------------------------------------');
+            console.log('✨ ESCANEA EL QR CON TU WHATSAPP ✨');
+            console.log('-------------------------------------------');
+            require('qrcode-terminal').generate(qr, { small: true });
+        }
+
         if (connection === 'close') {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             if (reason !== DisconnectReason.loggedOut) {
+                console.log('🔄 Reintentando conexión...');
                 startBot();
             } else {
-                console.log('❌ SESIÓN CERRADA: Borra auth_info_baileys y escanea de nuevo.');
+                console.log('❌ Sesión cerrada.');
             }
         } else if (connection === 'open') {
-            console.log('🍜 MARUCHAN BOT: CONECTADO Y LISTO');
+            console.log('🍜 MARUCHAN BOT: CONECTADO');
         }
     });
 
