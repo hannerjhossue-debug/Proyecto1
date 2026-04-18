@@ -1,7 +1,7 @@
 const { 
     default: makeWASocket, 
     useMultiFileAuthState, 
-    disconnectReason, 
+    DisconnectReason, 
     fetchLatestBaileysVersion, 
     makeInMemoryStore, 
     jidDecode, 
@@ -12,10 +12,10 @@ const { Boom } = require('@hapi/boom');
 const fs = require('fs');
 const path = require('path');
 
-// --- BASES DE DATOS SIMPLES EN MEMORIA ---
-global.ausentes = {};    // Para el sistema AFK
-global.listaNegra = [];  // Para usuarios muteados
-global.antiSticker = {}; // Para el control de grupos (se guarda por ID de grupo)
+// --- BASES DE DATOS EN MEMORIA ---
+global.ausentes = {};    
+global.listaNegra = [];  
+global.antiSticker = {}; 
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -31,27 +31,26 @@ async function startBot() {
     sock.ev.on('messages.upsert', async (chatUpdate) => {
         try {
             const m = chatUpdate.messages[0];
-            if (!m.message) return;
+            if (!m.message || m.key.fromMe) return;
             const from = m.key.remoteJid;
             const isGroup = from.endsWith('@g.us');
             const sender = m.key.participant || from;
             const pushName = m.pushName || 'Usuario';
             
-            // 1. LÓGICA DE LISTA NEGRA (MUTE)
+            // 1. LISTA NEGRA
             if (global.listaNegra.includes(sender)) return;
 
-            // 2. LÓGICA DE ANTI-STICKER
+            // 2. ANTI-STICKER
             if (isGroup && global.antiSticker[from]) {
                 if (m.message.stickerMessage) {
                     await sock.sendMessage(from, { delete: m.key });
-                    return; // No procesar nada más si era un sticker prohibido
+                    return;
                 }
             }
 
-            // 3. LÓGICA DE AUSENCIA (AFK)
-            // Si mencionan a alguien que está ausente
-            const mensiones = m.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-            mensiones.forEach(jid => {
+            // 3. SISTEMA DE AUSENCIA (AFK)
+            const menciones = m.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+            menciones.forEach(jid => {
                 if (global.ausentes[jid]) {
                     const data = global.ausentes[jid];
                     const tiempo = Math.floor((Date.now() - data.hora) / 1000);
@@ -62,10 +61,9 @@ async function startBot() {
                 }
             });
 
-            // Si el usuario ausente regresa
             if (global.ausentes[sender]) {
                 const tiempoFuera = Math.floor((Date.now() - global.ausentes[sender].hora) / 1000);
-                await sock.sendMessage(from, { text: `✅ ¡Bienvenido de nuevo ${pushName}! Estuviste fuera ${tiempoFuera} segundos.` });
+                await sock.sendMessage(from, { text: `✅ ¡Bienvenido de nuevo ${pushName}! Estuviste ausente ${tiempoFuera} segundos.` });
                 delete global.ausentes[sender];
             }
 
@@ -93,10 +91,15 @@ async function startBot() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== disconnectReason.loggedOut;
-            if (shouldReconnect) startBot();
+            // AQUÍ ESTÁ EL ARREGLO PARA EL ERROR 404/LOGGEDOUT
+            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
+            if (reason !== DisconnectReason.loggedOut) {
+                startBot();
+            } else {
+                console.log('❌ Sesión cerrada. Borra la carpeta auth_info_baileys y escanea de nuevo.');
+            }
         } else if (connection === 'open') {
-            console.log('🍜 Maruchan Bot Conectado con Éxito');
+            console.log('🍜 Maruchan Bot Conectado');
         }
     });
 }
