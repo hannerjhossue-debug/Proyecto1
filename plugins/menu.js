@@ -2,31 +2,30 @@ const fs = require('fs');
 
 module.exports = {
     name: 'menu',
-    alias: ['ayuda', 'comandos', 'h'],
+    alias: ['ayuda', 'help'],
+    category: 'principal',
+    description: 'Muestra el menú de comandos por categorías.',
     run: async (sock, m, texto) => {
         const from = m.key.remoteJid;
-        const nombreUser = m.pushName || 'Usuario';
         const archivos = fs.readdirSync('./plugins').filter(file => file.endsWith('.js'));
         
-        let listaComandos = archivos.map(file => {
+        const menuDinamico = {};
+
+        archivos.forEach(file => {
             const plugin = require(`./${file}`);
-            const aliasTxt = plugin.alias ? ` _(alias: ${plugin.alias.join(', ')})_` : '';
-            return `🍜 */${plugin.name}*${aliasTxt}`;
-        }).join('\n');
+            const cat = plugin.category || 'OTROS';
+            if (!menuDinamico[cat]) menuDinamico[cat] = [];
+            menuDinamico[cat].push(`🔹 */${plugin.name}* \n   _${plugin.description || 'Sin descripción'}_`);
+        });
 
-        const mensajeMenu = `
-¡Qué onda, *${nombreUser}*! 👋
-Bienvenido al **Maruchan Bot v1** 🍜
+        let textoMenu = `✨ *MARUCHAN BOT - PANEL* ✨\n\n`;
+        for (const [categoria, comandos] of Object.entries(menuDinamico)) {
+            textoMenu += `📂 *${categoria.toUpperCase()}*\n`;
+            textoMenu += comandos.join('\n') + `\n\n`;
+        }
+        
+        textoMenu += `🚀 _Usa el prefijo / para todo._`;
 
-Aquí tienes lo que puedo hacer:
-━━━━━━━━━━━━━━━━━━
-${listaComandos}
-━━━━━━━━━━━━━━━━━━
-
-📌 *Dato:* Usa / antes de cada comando.
-🚀 *Estado:* Máxima velocidad.
-`.trim();
-
-        await sock.sendMessage(from, { text: mensajeMenu }, { quoted: m });
+        await sock.sendMessage(from, { text: textoMenu }, { quoted: m });
     }
 };
