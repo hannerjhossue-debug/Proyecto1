@@ -1,67 +1,70 @@
-const { default: makeWASocket, useMultiFileAuthState, disconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode-terminal');
 const conectarDB = require('./database');
 
 async function iniciarBot() {
-    await conectarDB(); // Inicia la base de datos primero
+    // 1. Conectar a la base de datos
+    await conectarDB();
 
+    // 2. Configurar autenticación y versión
     const { state, saveCreds } = await useMultiFileAuthState('auth_maruchan');
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: true,
         auth: state,
+        printQRInTerminal: false, // Lo manejamos manualmente abajo para evitar errores
         browser: ['Maruchan Bot', 'Safari', '3.0']
     });
 
+    // Guardar credenciales
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'close') {
-            let razon = new Boom(lastDisconnect?.error)?.output.statusCode;
-            console.log(`Conexión cerrada. Razón: ${razon}. Reconectando...`);
-            iniciarBot();
-        } else if (connection === 'open') {
-            console.log('✅ [SISTEMA] Bot conectado con éxito a WhatsApp');
-        }
-    });
-
+    // 3. Manejar conexión y QR
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
-        
-        // Si la librería manda un QR, esto lo imprime en la consola
+
         if (qr) {
-            console.log("Sigue estos pasos:\n1. Abre WhatsApp\n2. Dispositivos vinculados\n3. Escanea el código de abajo:");
+            console.log('✨ ESCANEA EL CÓDIGO QR PARA INICIAR:');
             qrcode.generate(qr, { small: true });
         }
 
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Conexión cerrada, reconectando...', shouldReconnect);
-            if (shouldReconnect) iniciarBot();
+            const razon = new Boom(lastDisconnect?.error)?.output.statusCode;
+            console.log(`❌ Conexión cerrada. Razón: ${razon}. Reconectando...`);
+            if (razon !== DisconnectReason.loggedOut) {
+                iniciarBot();
+            }
         } else if (connection === 'open') {
-            console.log('✅ [SISTEMA] Bot conectado con éxito');
+            console.log('✅ [SISTEMA] Maruchan Bot conectado con éxito');
         }
     });
-            // --- SECCIÓN DE COMANDOS ---
+
+    // 4. Escuchar mensajes
+    sock.ev.on('messages.upsert', async chatUpdate => {
+        try {
+            const m = chatUpdate.messages[0];
+            if (!m.message || m.key.fromMe) return;
+
+            const from = m.key.remoteJid;
+            const body = m.message.conversation || m.message.extendedTextMessage?.text || "";
+            const comando = body.trim().toLowerCase();
+
             if (comando === 'hola') {
-                await sock.sendMessage(from, { text: '¡Hola! Soy tu bot Maruchan. 🍜' });
+                await sock.sendMessage(from, { text: '¡Hola! Soy Maruchan Bot. 🍜\n\nPrueba con: !ping' });
             }
 
             if (comando === '!ping') {
-                await sock.sendMessage(from, { text: '¡Pong! 🏓 El bot está activo.' });
+                await sock.sendMessage(from, { text: '🏓 ¡Pong! Tu bot está funcionando perfectamente.' });
             }
-            
-            // Aquí puedes ir agregando más comandos tú mismo
         } catch (err) {
-            console.error(err);
+            console.log('Error procesando mensaje: ', err);
         }
     });
 }
 
+// Arrancar el bot
 iniciarBot();
