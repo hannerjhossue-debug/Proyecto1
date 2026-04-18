@@ -4,28 +4,27 @@ module.exports = {
     name: 'menu',
     alias: ['ayuda', 'help'],
     category: 'principal',
-    description: 'Muestra el menú de comandos por categorías.',
+    description: 'Muestra la lista de comandos disponibles.',
     run: async (sock, m, texto) => {
         const from = m.key.remoteJid;
+        const nombreUser = m.pushName || 'Usuario';
         const archivos = fs.readdirSync('./plugins').filter(file => file.endsWith('.js'));
         
-        const menuDinamico = {};
+        let menuTxt = `¡Hola, *${nombreUser}*! 👋\n`;
+        menuTxt += `Bienvenido a *Maruchan Bot v1* 🍜\n\n`;
+        menuTxt += `Aquí tienes mi lista de comandos:\n`;
+        menuTxt += `━━━━━━━━━━━━━━━━━━━━\n`;
 
         archivos.forEach(file => {
             const plugin = require(`./${file}`);
-            const cat = plugin.category || 'OTROS';
-            if (!menuDinamico[cat]) menuDinamico[cat] = [];
-            menuDinamico[cat].push(`🔹 */${plugin.name}* \n   _${plugin.description || 'Sin descripción'}_`);
+            menuTxt += `🍜 */${plugin.name}*\n`;
+            menuTxt += `╰ _${plugin.description || 'Sin descripción.'}_\n\n`;
         });
 
-        let textoMenu = `✨ *MARUCHAN BOT - PANEL* ✨\n\n`;
-        for (const [categoria, comandos] of Object.entries(menuDinamico)) {
-            textoMenu += `📂 *${categoria.toUpperCase()}*\n`;
-            textoMenu += comandos.join('\n') + `\n\n`;
-        }
-        
-        textoMenu += `🚀 _Usa el prefijo / para todo._`;
+        menuTxt += `━━━━━━━━━━━━━━━━━━━━\n`;
+        menuTxt += `📌 *Dato:* Usa / antes de cada comando.\n`;
+        menuTxt += `🚀 *Estado:* Online`;
 
-        await sock.sendMessage(from, { text: textoMenu }, { quoted: m });
+        await sock.sendMessage(from, { text: menuTxt.trim() }, { quoted: m });
     }
 };
