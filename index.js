@@ -7,8 +7,8 @@ const pino = require('pino');
 const { Boom } = require('@hapi/boom');
 const fs = require('fs');
 const path = require('path');
+const qrcode = require('qrcode-terminal');
 
-// BASES DE DATOS
 global.ausentes = {};    
 global.listaNegra = [];  
 global.antiSticker = {}; 
@@ -16,7 +16,6 @@ global.antiSticker = {};
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     
-    // Configuramos la conexión de forma limpia
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
@@ -28,24 +27,23 @@ async function startBot() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Si la librería manda un QR, lo imprimimos nosotros mismos
         if (qr) {
-            console.log('-------------------------------------------');
-            console.log('✨ ESCANEA EL QR CON TU WHATSAPP ✨');
-            console.log('-------------------------------------------');
-            require('qrcode-terminal').generate(qr, { small: true });
+            console.log('✨ MARUCHAN BOT: ESCANEA EL QR ABAJO ✨');
+            qrcode.generate(qr, { small: true });
         }
 
         if (connection === 'close') {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-            if (reason !== DisconnectReason.loggedOut) {
-                console.log('🔄 Reintentando conexión...');
-                startBot();
+            
+            // Si la sesión se cerró o no existe, NO REINTENTAR AUTOMÁTICAMENTE
+            if (reason === DisconnectReason.loggedOut) {
+                console.log('❌ Sesión cerrada. Escanea de nuevo.');
             } else {
-                console.log('❌ Sesión cerrada.');
+                console.log('🔄 Reintentando en 5 segundos...');
+                setTimeout(() => startBot(), 5000);
             }
         } else if (connection === 'open') {
-            console.log('🍜 MARUCHAN BOT: CONECTADO');
+            console.log('🍜 CONECTADO CON ÉXITO');
         }
     });
 
@@ -55,13 +53,11 @@ async function startBot() {
             if (!m.message || m.key.fromMe) return;
             const from = m.key.remoteJid;
             
-            // ANTI-STICKER
             if (from.endsWith('@g.us') && global.antiSticker[from] && m.message.stickerMessage) {
                 await sock.sendMessage(from, { delete: m.key });
                 return;
             }
 
-            // COMANDOS
             const body = m.message.conversation || m.message.extendedTextMessage?.text || '';
             if (body.startsWith('/')) {
                 const command = body.slice(1).trim().split(' ')[0].toLowerCase();
