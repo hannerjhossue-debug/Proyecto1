@@ -83,7 +83,10 @@ async function iniciarBot() {
             const comandoNombre = body.slice(prefix.length).trim().split(/ +/)[0].toLowerCase();
             const args = body.trim().split(/ +/).slice(1);
             const texto = args.join(' ');
-
+            
+// Esto saldrá en Termux cada vez que alguien use un comando
+    console.log(`[COMANDO] ${comandoNombre} de ${m.pushName || 'Alguien'} en ${from}`);
+            
             // Buscar plugin por nombre o alias
             const plugin = Object.values(plugins).find(p => 
                 p.name === comandoNombre || (p.alias && p.alias.includes(comandoNombre))
