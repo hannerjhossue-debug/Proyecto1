@@ -13,29 +13,37 @@ module.exports = {
         if (!link) return sock.sendMessage(from, { text: '❌ _Link no válido._' }, { quoted: m });
 
         try {
-            await sock.sendMessage(from, { text: '⏳ _Procesando video de alta calidad..._' }, { quoted: m });
+            await sock.sendMessage(from, { text: '⏳ _Maruchan está cocinando tu video..._' }, { quoted: m });
 
-            // API 1: DelApi (Muy estable para Latinoamérica)
-            const res = await axios.get(`https://delirius-api-oficial.vercel.app/api/tiktok?url=${link[0]}`);
+            // Probamos con una API de alto rendimiento
+            const res = await axios.get(`https://api.vreden.my.id/api/tiktok?url=${encodeURIComponent(link[0])}`);
             
-            if (res.data && res.data.data) {
-                const video = res.data.data.main;
+            if (res.data && res.data.status === 200) {
+                const videoData = res.data.result;
                 return await sock.sendMessage(from, { 
-                    video: { url: video }, 
-                    caption: `✅ *Maruchan Bot*\n👤 ${res.data.data.nickname || 'TikToker'}` 
+                    video: { url: videoData.video || videoData.video_hd }, 
+                    caption: `✅ *TikTok Listo*\n📝 ${videoData.title || 'Sin descripción'}` 
                 }, { quoted: m });
             }
             
-            throw new Error('Fallo API 1');
+            throw new Error('La API no devolvió un video válido');
 
         } catch (e) {
-            // API 2: Respaldo directo (Tiky)
+            // LOG DETALLADO EN CONSOLA PARA TI
+            console.log('--- ERROR EN TIKTOK ---');
+            console.log(e.response?.data || e.message);
+            
+            // Intento final con API de respaldo clásica
             try {
-                const res2 = await axios.get(`https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(link[0])}`);
-                const video2 = res2.data.video.noWatermark;
-                await sock.sendMessage(from, { video: { url: video2 }, caption: '✅ *Servidor de Respaldo*' }, { quoted: m });
+                const res2 = await axios.get(`https://api.dorratz.com/v2/download/tiktok?url=${link[0]}`);
+                if (res2.data && res2.data.data) {
+                    return await sock.sendMessage(from, { 
+                        video: { url: res2.data.data.media.no_watermark }, 
+                        caption: '✅ *Descargado (Servidor 2)*' 
+                    }, { quoted: m });
+                }
             } catch (err2) {
-                await sock.sendMessage(from, { text: '❌ _TikTok ha bloqueado la descarga temporalmente. Prueba con otro video._' }, { quoted: m });
+                await sock.sendMessage(from, { text: '❌ _TikTok bloqueó el acceso. Intenta con un link de TikTok normal (no Lite) o prueba más tarde._' }, { quoted: m });
             }
         }
     }
