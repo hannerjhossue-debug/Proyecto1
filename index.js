@@ -1,18 +1,14 @@
 const { 
     default: makeWASocket, 
     useMultiFileAuthState, 
-    DisconnectReason, 
-    fetchLatestBaileysVersion, 
-    makeInMemoryStore, 
-    jidDecode, 
-    proto 
+    DisconnectReason 
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { Boom } = require('@hapi/boom');
 const fs = require('fs');
 const path = require('path');
 
-// --- BASES DE DATOS EN MEMORIA ---
+// BASES DE DATOS (Se mantienen mientras el bot esté encendido)
 global.ausentes = {};    
 global.listaNegra = [];  
 global.antiSticker = {}; 
@@ -20,34 +16,26 @@ global.antiSticker = {};
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     
-    // Eliminamos la opción que causa el bucle de advertencias
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
+        printQRInTerminal: true, // ESTO ASEGURA QUE VEAS EL QR
         browser: ['Maruchan-Bot', 'Safari', '1.0.0']
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Manejo de conexión corregido
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        // Si hay un QR nuevo, lo mostramos manualmente para evitar el error
-        if (qr) {
-            console.log('✨ ESCANEA EL CÓDIGO QR PARA CONECTAR ✨');
-        }
-
+        const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             if (reason !== DisconnectReason.loggedOut) {
-                console.log('🔄 Reconectando...');
                 startBot();
             } else {
-                console.log('❌ Sesión cerrada. Borra la carpeta auth_info_baileys.');
+                console.log('❌ SESIÓN CERRADA: Borra auth_info_baileys y escanea de nuevo.');
             }
         } else if (connection === 'open') {
-            console.log('🍜 Maruchan Bot Conectado con Éxito');
+            console.log('🍜 MARUCHAN BOT: CONECTADO Y LISTO');
         }
     });
 
@@ -56,35 +44,24 @@ async function startBot() {
             const m = chatUpdate.messages[0];
             if (!m.message || m.key.fromMe) return;
             const from = m.key.remoteJid;
-            const isGroup = from.endsWith('@g.us');
-            const sender = m.key.participant || from;
             
-            // Lógica Anti-Sticker
-            if (isGroup && global.antiSticker[from] && m.message.stickerMessage) {
+            // ANTI-STICKER
+            if (from.endsWith('@g.us') && global.antiSticker[from] && m.message.stickerMessage) {
                 await sock.sendMessage(from, { delete: m.key });
                 return;
             }
 
-            // Lógica Ausente (AFK)
-            if (global.ausentes[sender]) {
-                delete global.ausentes[sender];
-                await sock.sendMessage(from, { text: '✅ Ya no estás en modo ausente.' });
-            }
-
-            // Procesador de Comandos
-            const prefix = '/';
-            const body = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || '';
-            if (body.startsWith(prefix)) {
-                const command = body.slice(prefix.length).trim().split(' ')[0].toLowerCase();
+            // COMANDOS
+            const body = m.message.conversation || m.message.extendedTextMessage?.text || '';
+            if (body.startsWith('/')) {
+                const command = body.slice(1).trim().split(' ')[0].toLowerCase();
                 const text = body.trim().split(/ +/).slice(1).join(' ');
                 const pluginPath = path.join(__dirname, 'plugins', `${command}.js`);
                 if (fs.existsSync(pluginPath)) {
                     require(pluginPath).run(sock, m, text);
                 }
             }
-        } catch (err) {
-            console.log(err);
-        }
+        } catch (err) { console.log(err) }
     });
 }
 
