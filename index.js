@@ -6,9 +6,9 @@ const {
 const pino = require('pino');
 const { Boom } = require('@hapi/boom');
 const fs = require('fs');
+const path = require('path'); // Usaremos esto para rutas exactas
 const qrcode = require('qrcode-terminal');
 
-// BASES PARA TUS COMANDOS
 global.ausentes = {};    
 global.antiSticker = {}; 
 
@@ -49,23 +49,23 @@ async function startBot() {
                 const command = body.slice(1).trim().split(' ')[0].toLowerCase();
                 const text = body.trim().split(/ +/).slice(1).join(' ');
                 
-                // ESTA ES LA RUTA MÁS SENCILLA POSIBLE
-                const pathFile = `./plugins/${command}.js`;
+                // BUSQUEDA MEJORADA DE ARCHIVOS
+                const directoryPath = path.join(__dirname, 'plugins');
+                const pathFile = path.join(directoryPath, `${command}.js`);
 
                 if (fs.existsSync(pathFile)) {
-                    console.log(`✅ Ejecutando: ${pathFile}`);
-                    // Eliminamos el caché para que si editas el plugin se actualice solo
+                    console.log(`✅ Ejecutando comando: ${command}`);
                     delete require.cache[require.resolve(pathFile)];
                     const plugin = require(pathFile);
                     await plugin.run(sock, m, text);
                 } else {
-                    console.log(`⚠️ No se encontró: ${pathFile}`);
-                    // Opcional: avisar al usuario
-                    // await sock.sendMessage(from, { text: 'Ese comando no existe.' });
+                    console.log(`⚠️ No se encontró el archivo físico en: ${pathFile}`);
+                    // Esto te confirmará en WhatsApp que el bot te escucha pero no halla el archivo
+                    await sock.sendMessage(from, { text: `❌ No encuentro el archivo para el comando: /${command}` });
                 }
             }
         } catch (err) {
-            console.error('❌ Error ejecutando comando:', err);
+            console.error('❌ Error crítico:', err);
         }
     });
 }
