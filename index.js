@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys')
+const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys')
 const qrcode = require('qrcode-terminal')
 const pino = require('pino')
 const fs = require('fs')
@@ -14,15 +14,10 @@ async function start() {
     sock.ev.on('creds.update', saveCreds)
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update
+        const { connection, qr } = update
         if (qr) qrcode.generate(qr, { small: true })
-        
-        if (connection === 'close') {
-            const restart = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
-            if (restart) start()
-        } else if (connection === 'open') {
-            console.log('🍜 MARUCHAN CONECTADO')
-        }
+        if (connection === 'open') console.log('✅ MARUCHAN ONLINE')
+        if (connection === 'close') start()
     })
 
     sock.ev.on('messages.upsert', async (chatUpdate) => {
