@@ -6,11 +6,10 @@ const {
 const pino = require('pino');
 const { Boom } = require('@hapi/boom');
 const fs = require('fs');
-const path = require('path'); // Usaremos esto para rutas exactas
 const qrcode = require('qrcode-terminal');
 
+// BASES PARA FUNCIONES (AFK, ETC)
 global.ausentes = {};    
-global.antiSticker = {}; 
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -18,7 +17,8 @@ async function startBot() {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ['Maruchan-Bot', 'Chrome', '1.0.0']
+        browser: ['Maruchan-Bot', 'Chrome', '1.0.0'],
+        printQRInTerminal: true
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -30,42 +30,38 @@ async function startBot() {
         if (connection === 'close') {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             if (reason !== DisconnectReason.loggedOut) {
-                setTimeout(() => startBot(), 5000);
+                startBot();
             }
         } else if (connection === 'open') {
-            console.log('🍜 MARUCHAN BOT: ONLINE Y LISTO');
+            console.log('🍜 MARUCHAN BOT: CONECTADO Y SINCRONIZANDO');
         }
     });
 
     sock.ev.on('messages.upsert', async (chatUpdate) => {
-        try {
-            const m = chatUpdate.messages[0];
-            if (!m || !m.message || m.key.fromMe) return;
+        const m = chatUpdate.messages[0];
+        if (!m || !m.message || m.key.fromMe) return;
 
-            const from = m.key.remoteJid;
-            const body = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || '';
+        const body = m.message.conversation || m.message.extendedTextMessage?.text || '';
+        
+        if (body.startsWith('/')) {
+            const command = body.slice(1).trim().split(' ')[0].toLowerCase();
+            const text = body.trim().split(/ +/).slice(1).join(' ');
             
-            if (body.startsWith('/')) {
-                const command = body.slice(1).trim().split(' ')[0].toLowerCase();
-                const text = body.trim().split(/ +/).slice(1).join(' ');
-                
-                // BUSQUEDA MEJORADA DE ARCHIVOS
-                const directoryPath = path.join(__dirname, 'plugins');
-                const pathFile = path.join(directoryPath, `${command}.js`);
+            // Ruta ultra-simple
+            const path = `./plugins/${command}.js`;
 
-                if (fs.existsSync(pathFile)) {
-                    console.log(`✅ Ejecutando comando: ${command}`);
-                    delete require.cache[require.resolve(pathFile)];
-                    const plugin = require(pathFile);
+            if (fs.existsSync(path)) {
+                try {
+                    delete require.cache[require.resolve(path)];
+                    const plugin = require(path);
                     await plugin.run(sock, m, text);
-                } else {
-                    console.log(`⚠️ No se encontró el archivo físico en: ${pathFile}`);
-                    // Esto te confirmará en WhatsApp que el bot te escucha pero no halla el archivo
-                    await sock.sendMessage(from, { text: `❌ No encuentro el archivo para el comando: /${command}` });
+                    console.log(`✅ Ejecutado: /${command}`);
+                } catch (e) {
+                    console.error(`❌ Error en /${command}:`, e);
                 }
+            } else {
+                console.log(`⚠️ No existe el archivo: ${path}`);
             }
-        } catch (err) {
-            console.error('❌ Error crítico:', err);
         }
     });
 }
