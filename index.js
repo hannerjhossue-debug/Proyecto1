@@ -1,10 +1,10 @@
-const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys')
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys')
 const qrcode = require('qrcode-terminal')
 const pino = require('pino')
 const fs = require('fs')
 
-async function start() {
-    // Esto asegura que la sesión empiece de cero
+async function startBot() {
+    // 1. Gestión de sesión limpia
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
     
     const sock = makeWASocket({
@@ -15,35 +15,48 @@ async function start() {
 
     sock.ev.on('creds.update', saveCreds)
 
+    // 2. Evento de conexión y QR
     sock.ev.on('connection.update', (update) => {
-        const { connection, qr } = update
+        const { connection, lastDisconnect, qr } = update
+        
         if (qr) {
-            console.log('✨ ESCANEA EL QR:')
+            console.log('✨ MARUCHAN-BOT: ESCANEA EL QR ABAJO')
             qrcode.generate(qr, { small: true })
         }
-        if (connection === 'open') console.log('✅ CONECTADO')
-        if (connection === 'close') start()
+
+        if (connection === 'close') {
+            const code = lastDisconnect?.error?.output?.statusCode
+            if (code !== DisconnectReason.loggedOut) {
+                console.log('🔄 Reconectando...')
+                startBot()
+            }
+        } else if (connection === 'open') {
+            console.log('🍜 BOT ONLINE: ¡LISTO PARA TRABAJAR!')
+        }
     })
 
+    // 3. Escucha de comandos (Sencillo y sin errores)
     sock.ev.on('messages.upsert', async (chatUpdate) => {
         const m = chatUpdate.messages[0]
         if (!m || !m.message || m.key.fromMe) return
         
-        const body = m.message.conversation || m.message.extendedTextMessage?.text || ''
+        const body = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || ''
         
         if (body.startsWith('/')) {
             const cmd = body.slice(1).trim().split(' ')[0].toLowerCase()
             const text = body.trim().split(/ +/).slice(1).join(' ')
+            const file = `./plugins/${cmd}.js`
             
-            // Ruta simple para tus plugins
-            if (fs.existsSync(`./plugins/${cmd}.js`)) {
+            if (fs.existsSync(file)) {
                 try {
-                    require(`./plugins/${cmd}.js`).run(sock, m, text)
+                    delete require.cache[require.resolve(file)]
+                    require(file).run(sock, m, text)
                 } catch (e) {
-                    console.log('Error en comando:', e)
+                    console.error(`❌ Error en comando /${cmd}`)
                 }
             }
         }
     })
 }
-start()
+
+startBot().catch(err => console.log("Error:", err))
