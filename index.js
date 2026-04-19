@@ -1,22 +1,36 @@
-const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys')
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys')
 const pino = require('pino')
+const { Boom } = require('@hapi/boom')
+const qrcode = require('qrcode-terminal')
 
 async function start() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
     
-    // Configuramos el socket para que no mande NINGÚN log
     const sock = makeWASocket({
         auth: state,
-        logger: pino({ level: 'fatal' }), // Solo errores fatales, nada de avisos amarillos
-        printQRInTerminal: true
+        logger: pino({ level: 'silent' }),
+        // Quitamos la opción que daba el error amarillo
     })
 
     sock.ev.on('creds.update', saveCreds)
 
     sock.ev.on('connection.update', (update) => {
-        const { connection } = update
-        if (connection === 'open') console.log('✅ CONECTADO')
-        if (connection === 'close') start()
+        const { connection, lastDisconnect, qr } = update
+        
+        // Si sale el QR, lo dibujamos nosotros a la fuerza
+        if (qr) {
+            console.log('✨ MARUCHAN BOT: ESCANEA ESTE QR ✨')
+            qrcode.generate(qr, { small: true })
+        }
+
+        if (connection === 'close') {
+            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode
+            if (reason !== DisconnectReason.loggedOut) {
+                setTimeout(() => start(), 3000)
+            }
+        } else if (connection === 'open') {
+            console.log('✅ CONECTADO CON ÉXITO')
+        }
     })
 
     sock.ev.on('messages.upsert', async (chatUpdate) => {
