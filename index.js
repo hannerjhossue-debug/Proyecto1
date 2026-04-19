@@ -1,10 +1,10 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys')
+const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys')
 const qrcode = require('qrcode-terminal')
 const pino = require('pino')
 const fs = require('fs')
-const { Boom } = require('@hapi/boom')
 
-async function startBot() {
+async function start() {
+    // Esto asegura que la sesión empiece de cero
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
     
     const sock = makeWASocket({
@@ -16,47 +16,34 @@ async function startBot() {
     sock.ev.on('creds.update', saveCreds)
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update
-        
+        const { connection, qr } = update
         if (qr) {
-            console.log('✨ ESCANEA EL QR AHORA:')
+            console.log('✨ ESCANEA EL QR:')
             qrcode.generate(qr, { small: true })
         }
-
-        if (connection === 'close') {
-            const shouldReconnect = (new Boom(lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut)
-            console.log('🔄 Conexión cerrada, reintentando:', shouldReconnect)
-            if (shouldReconnect) startBot()
-        } else if (connection === 'open') {
-            console.log('✅ BOT CONECTADO CON ÉXITO')
-        }
+        if (connection === 'open') console.log('✅ CONECTADO')
+        if (connection === 'close') start()
     })
 
     sock.ev.on('messages.upsert', async (chatUpdate) => {
         const m = chatUpdate.messages[0]
         if (!m || !m.message || m.key.fromMe) return
         
-        const body = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || ''
+        const body = m.message.conversation || m.message.extendedTextMessage?.text || ''
         
         if (body.startsWith('/')) {
             const cmd = body.slice(1).trim().split(' ')[0].toLowerCase()
             const text = body.trim().split(/ +/).slice(1).join(' ')
-            const pathFile = `./plugins/${cmd}.js`
             
-            if (fs.existsSync(pathFile)) {
+            // Ruta simple para tus plugins
+            if (fs.existsSync(`./plugins/${cmd}.js`)) {
                 try {
-                    // Limpia caché para que los cambios en plugins se vean al instante
-                    delete require.cache[require.resolve(pathFile)]
-                    const plugin = require(pathFile)
-                    await plugin.run(sock, m, text)
+                    require(`./plugins/${cmd}.js`).run(sock, m, text)
                 } catch (e) {
-                    console.error(`❌ Error en comando /${cmd}:`, e)
+                    console.log('Error en comando:', e)
                 }
-            } else {
-                console.log(`⚠️ Comando no encontrado: ${pathFile}`)
             }
         }
     })
 }
-
-startBot().catch(err => console.error("Error fatal:", err))
+start()
